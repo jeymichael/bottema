@@ -1,0 +1,6 @@
+{
+  "name": "GeoSquare: Dynamic Triangle & Square Midpoint Explorer",
+  "description": "An interactive geometry sandbox exploring triangles, dynamic squares on moving sides, and the invariant midpoint theorem on a precision graph-sheet grid.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
