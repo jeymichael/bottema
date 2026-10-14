@@ -35,6 +35,7 @@ export default function App() {
   const [isDrawMode, setIsDrawMode] = useState(false);
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [viewResetKey, setViewResetKey] = useState(0);
 
   // Locus trail states
   const [locusPoints, setLocusPoints] = useState<Point[]>([]);
@@ -75,6 +76,7 @@ export default function App() {
     setLocusLines([]);
     orbitCenterRef.current = { ...DEFAULT_TRIANGLE.C };
     setActivePresetId(null);
+    setViewResetKey((k) => k + 1);
   };
 
   // Add points to locus trace
@@ -170,6 +172,7 @@ export default function App() {
             locusPoints={locusPoints}
             locusLines={locusLines}
             onAddLocusPoint={handleAddLocusPoint}
+            viewResetKey={viewResetKey}
           />
 
           {/* Mobile-only canvas actions (header is hidden below lg) */}

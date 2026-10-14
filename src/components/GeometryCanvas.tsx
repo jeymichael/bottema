@@ -23,6 +23,7 @@ interface GeometryCanvasProps {
   locusPoints: Point[];
   locusLines: Array<{ start: Point; end: Point }>;
   onAddLocusPoint: (pt: Point, line: { start: Point; end: Point }) => void;
+  viewResetKey?: number; // bump to reset zoom & pan
 }
 
 export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
@@ -34,6 +35,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
   locusPoints,
   locusLines,
   onAddLocusPoint,
+  viewResetKey = 0,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 900, height: 650 });
@@ -472,6 +474,11 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
       setTransform({ zoom: 1, panX: 0, panY: 20 });
     }
   };
+
+  // Parent-triggered view reset (e.g. the Reset button)
+  useEffect(() => {
+    if (viewResetKey > 0) resetView();
+  }, [viewResetKey]);
 
   return (
     <div
