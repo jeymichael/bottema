@@ -18,11 +18,11 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="flex items-center justify-between gap-8 px-6 py-3.5 bg-slate-900 border-b border-slate-800 text-slate-100 shrink-0">
       {/* Zone 1: Single text element wordmark */}
       <div className="flex items-center gap-3">
-        <a href="/" className="text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0 flex items-center gap-2">
+        <a href={import.meta.env.BASE_URL} className="text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0 flex items-center gap-2">
           <div className="w-5 h-5 rounded bg-blue-600 flex items-center justify-center text-xs font-black shadow-sm shadow-blue-500/50">
-            G
+            B
           </div>
-          <span>GeoSquare</span>
+          <span>Bottema</span>
         </a>
         <span className="hidden sm:inline text-xs text-slate-400 border-l border-slate-700 pl-3">
           Dynamic Triangle & Square Theorem Explorer
