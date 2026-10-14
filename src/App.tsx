@@ -6,6 +6,7 @@ import { GeometryCanvas } from './components/GeometryCanvas';
 import { InspectorDeck } from './components/InspectorDeck';
 import { ControlPanel } from './components/ControlPanel';
 import { ProofModal } from './components/ProofModal';
+import { Play, Pause, RotateCcw } from 'lucide-react';
 
 const DEFAULT_TRIANGLE: TriangleVertices = {
   A: { x: -5, y: 0 },
@@ -141,14 +142,16 @@ export default function App() {
   }, [isAnimating, options, handleAddLocusPoint, triangle]);
 
   return (
-    <div className="flex flex-col h-full w-full min-h-[500px] overflow-hidden bg-slate-950 font-sans">
-      {/* 1. Header (Adhering to Top Bar Contract) */}
+    <div className="flex flex-col h-full w-full lg:min-h-[500px] overflow-hidden bg-slate-950 font-sans">
+      {/* 1. Header (Adhering to Top Bar Contract) — desktop only; mobile is canvas-only */}
+      <div className="hidden lg:block">
       <Header
         isAnimating={isAnimating}
         onToggleAnimate={() => setIsAnimating(!isAnimating)}
         onReset={handleReset}
         onOpenProofModal={() => setIsProofModalOpen(true)}
       />
+      </div>
 
       {/* 2. Main Visual Interactive Area */}
       <div className="flex flex-1 overflow-hidden relative">
@@ -168,17 +171,42 @@ export default function App() {
             locusLines={locusLines}
             onAddLocusPoint={handleAddLocusPoint}
           />
+
+          {/* Mobile-only canvas actions (header is hidden below lg) */}
+          <div className="lg:hidden absolute bottom-4 left-4 z-10 flex items-center gap-2">
+            <button
+              onClick={() => setIsAnimating(!isAnimating)}
+              className={`px-3.5 py-2 text-sm font-semibold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-xl ${
+                isAnimating
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white'
+                  : 'bg-blue-600 hover:bg-blue-500 text-white'
+              }`}
+            >
+              {isAnimating ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              <span className="whitespace-nowrap">{isAnimating ? 'Pause Orbit' : 'Auto Orbit'}</span>
+            </button>
+            <button
+              onClick={handleReset}
+              className="px-3.5 py-2 text-sm font-medium text-slate-200 bg-slate-900/90 backdrop-blur-md hover:bg-slate-800 rounded-xl border border-slate-700 shadow-xl flex items-center gap-2 cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Reset</span>
+            </button>
+          </div>
         </main>
 
-        {/* Right: Metrics & Inspection Deck */}
+        {/* Right: Metrics & Inspection Deck (desktop only) */}
+        <div className="hidden lg:flex h-full">
         <InspectorDeck
           calculation={calculation}
           options={options}
           onOpenProofModal={() => setIsProofModalOpen(true)}
         />
+        </div>
       </div>
 
-      {/* 3. Control Panel (Bottom Deck) */}
+      {/* 3. Control Panel (Bottom Deck, desktop only) */}
+      <div className="hidden lg:block">
       <ControlPanel
         options={options}
         onOptionsChange={handleOptionsChange}
@@ -188,6 +216,7 @@ export default function App() {
         onClearLocus={handleClearLocus}
         activePresetId={activePresetId}
       />
+      </div>
 
       {/* 4. Educational Bottema Theorem Modal */}
       <ProofModal

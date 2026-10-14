@@ -54,6 +54,40 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
     initPanY: 0,
   });
 
+  // Latest calculation, read when fitting the view on first measure
+  const calculationRef = useRef(calculation);
+  calculationRef.current = calculation;
+  const hasFittedRef = useRef(false);
+
+  // Zoom & pan so the whole figure fits the viewport (used on narrow/mobile screens)
+  const fitTransform = (width: number, height: number): ViewportTransform => {
+    const calc = calculationRef.current;
+    const pts = [
+      calc.triangle.A,
+      calc.triangle.B,
+      calc.triangle.C,
+      ...calc.redSquare.vertices,
+      ...calc.greenSquare.vertices,
+      ...calc.invariantSquareVertices,
+    ];
+    const pad = 1.5; // world units of breathing room for labels
+    const minX = Math.min(...pts.map((p) => p.x)) - pad;
+    const maxX = Math.max(...pts.map((p) => p.x)) + pad;
+    const minY = Math.min(...pts.map((p) => p.y)) - pad;
+    const maxY = Math.max(...pts.map((p) => p.y)) + pad;
+    const zoom = Math.min(
+      Math.max(Math.min(width / ((maxX - minX) * 40), height / ((maxY - minY) * 40)), 0.25),
+      1
+    );
+    return {
+      zoom,
+      panX: -((minX + maxX) / 2) * 40 * zoom,
+      panY: ((minY + maxY) / 2) * 40 * zoom,
+    };
+  };
+
+  const isNarrow = (width: number) => width < 1024;
+
   // Track dimensions with ResizeObserver
   useEffect(() => {
     if (!containerRef.current) return;
@@ -62,6 +96,10 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
         const { clientWidth, clientHeight } = containerRef.current;
         if (clientWidth > 0 && clientHeight > 0) {
           setDimensions({ width: clientWidth, height: clientHeight });
+          if (!hasFittedRef.current) {
+            hasFittedRef.current = true;
+            if (isNarrow(window.innerWidth)) setTransform(fitTransform(clientWidth, clientHeight));
+          }
         }
       }
     };
@@ -90,7 +128,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.909;
-    const newZoom = Math.min(Math.max(transform.zoom * zoomFactor, 0.4), 3.0);
+    const newZoom = Math.min(Math.max(transform.zoom * zoomFactor, 0.25), 3.0);
 
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect) {
@@ -382,7 +420,11 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
   const trianglePoints = `${sA.x},${sA.y} ${sB.x},${sB.y} ${sC.x},${sC.y}`;
 
   const resetView = () => {
-    setTransform({ zoom: 1, panX: 0, panY: 20 });
+    if (isNarrow(window.innerWidth)) {
+      setTransform(fitTransform(dimensions.width, dimensions.height));
+    } else {
+      setTransform({ zoom: 1, panX: 0, panY: 20 });
+    }
   };
 
   return (
@@ -942,7 +984,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
           <ZoomIn className="w-4 h-4" />
         </button>
         <button
-          onClick={() => setTransform((t) => ({ ...t, zoom: Math.max(t.zoom * 0.87, 0.4) }))}
+          onClick={() => setTransform((t) => ({ ...t, zoom: Math.max(t.zoom * 0.87, 0.25) }))}
           className="p-1.5 hover:bg-slate-800 hover:text-white rounded-lg transition-colors cursor-pointer"
           title="Zoom Out"
         >
@@ -970,7 +1012,8 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
               <Hand className="w-4 h-4" />
               <span>Interactive:</span>
             </div>
-            <span>Click &amp; drag the orange <strong className="text-amber-400 font-bold">Point C</strong> to morph the triangle &amp; squares!</span>
+            <span className="hidden lg:inline">Click &amp; drag the orange <strong className="text-amber-400 font-bold">Point C</strong> to morph the triangle &amp; squares!</span>
+            <span className="lg:hidden">Drag <strong className="text-amber-400 font-bold">Point C</strong></span>
           </div>
         )}
       </div>
