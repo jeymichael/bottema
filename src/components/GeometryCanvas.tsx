@@ -54,14 +54,20 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
     initPanY: 0,
   });
 
+  const vertexDragStartRef = useRef<{ screenX: number; screenY: number; world: Point; zoom: number }>({
+    screenX: 0,
+    screenY: 0,
+    world: { x: 0, y: 0 },
+    zoom: 1,
+  });
+
   // Latest calculation, read when fitting the view on first measure
   const calculationRef = useRef(calculation);
   calculationRef.current = calculation;
   const hasFittedRef = useRef(false);
 
-  // Zoom & pan so the whole figure fits the viewport (used on narrow/mobile screens)
-  const fitTransform = (width: number, height: number): ViewportTransform => {
-    const calc = calculationRef.current;
+  // World-space bounding box of the whole figure, padded by `pad` units
+  const figureBounds = (calc: GeometryCalculation, pad: number) => {
     const pts = [
       calc.triangle.A,
       calc.triangle.B,
@@ -70,14 +76,20 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
       ...calc.greenSquare.vertices,
       ...calc.invariantSquareVertices,
     ];
-    const pad = 1.5; // world units of breathing room for labels
-    const minX = Math.min(...pts.map((p) => p.x)) - pad;
-    const maxX = Math.max(...pts.map((p) => p.x)) + pad;
-    const minY = Math.min(...pts.map((p) => p.y)) - pad;
-    const maxY = Math.max(...pts.map((p) => p.y)) + pad;
+    return {
+      minX: Math.min(...pts.map((p) => p.x)) - pad,
+      maxX: Math.max(...pts.map((p) => p.x)) + pad,
+      minY: Math.min(...pts.map((p) => p.y)) - pad,
+      maxY: Math.max(...pts.map((p) => p.y)) + pad,
+    };
+  };
+
+  // Zoom & pan so the whole figure fits the viewport, never zooming in past maxZoom
+  const fitTransform = (width: number, height: number, maxZoom = 1): ViewportTransform => {
+    const { minX, maxX, minY, maxY } = figureBounds(calculationRef.current, 1.5); // room for labels
     const zoom = Math.min(
-      Math.max(Math.min(width / ((maxX - minX) * 40), height / ((maxY - minY) * 40)), 0.25),
-      1
+      Math.max(Math.min(width / ((maxX - minX) * 40), height / ((maxY - minY) * 40)), 0.05),
+      maxZoom
     );
     return {
       zoom,
@@ -109,7 +121,23 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
     return () => observer.disconnect();
   }, []);
 
+  // Auto zoom-out: when a drag or orbit pushes the figure past the viewport edge,
+  // zoom out (never in) and re-center so everything stays in view.
+  useEffect(() => {
+    if (!hasFittedRef.current) return;
+    const { width, height } = dimensions;
+    const { minX, maxX, minY, maxY } = figureBounds(calculation, 0.5);
+    setTransform((t) => {
+      const topLeft = worldToScreen({ x: minX, y: maxY }, width, height, t.panX, t.panY, t.zoom, 40);
+      const bottomRight = worldToScreen({ x: maxX, y: minY }, width, height, t.panX, t.panY, t.zoom, 40);
+      const inView =
+        topLeft.x >= 0 && topLeft.y >= 0 && bottomRight.x <= width && bottomRight.y <= height;
+      return inView ? t : fitTransform(width, height, t.zoom);
+    });
+  }, [calculation, dimensions]);
+
   const { triangle, redSquare, greenSquare, connectingLine } = calculation;
+  const isDraggingVertex = activeDragging !== null && activeDragging !== 'pan';
   const unitPx = 40; // 1 coordinate unit = 40 pixels
 
   const toScreen = useCallback(
@@ -128,7 +156,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.909;
-    const newZoom = Math.min(Math.max(transform.zoom * zoomFactor, 0.25), 3.0);
+    const newZoom = Math.min(Math.max(transform.zoom * zoomFactor, 0.05), 3.0);
 
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect) {
@@ -167,10 +195,14 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
         return;
       }
 
-      // Dragging a vertex (A, B, or C)
-      const sx = e.clientX - rect.left;
-      const sy = e.clientY - rect.top;
-      let worldPt = toWorld(sx, sy);
+      // Dragging a vertex (A, B, or C): map the finger's displacement using the zoom at
+      // drag start, so auto zoom-out mid-drag can't feed back and fling the vertex away
+      const start = vertexDragStartRef.current;
+      const scale = unitPx * start.zoom;
+      let worldPt = {
+        x: start.world.x + (e.clientX - start.screenX) / scale,
+        y: start.world.y - (e.clientY - start.screenY) / scale,
+      };
 
       if (options.snapToGrid) {
         worldPt = snapPoint(worldPt, options.gridStep);
@@ -203,6 +235,12 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
   const handleVertexPointerDown = (e: React.PointerEvent, target: 'A' | 'B' | 'C') => {
     e.preventDefault();
     e.stopPropagation(); // CRITICAL: prevent canvas pan from overwriting vertex drag!
+    vertexDragStartRef.current = {
+      screenX: e.clientX,
+      screenY: e.clientY,
+      world: { ...triangle[target] },
+      zoom: transform.zoom,
+    };
     setActiveDragging(target);
   };
 
@@ -273,6 +311,12 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
   const minWorldY = Math.floor((originY - dimensions.height) / currentUnitPx) - 1;
   const maxWorldY = Math.ceil(originY / currentUnitPx) + 1;
 
+  // Adaptive grid spacing: widen major lines (1, 2, 5, 10, …) as the view zooms out
+  const majorStep = [1, 2, 5, 10, 20, 50, 100, 200].find((s) => s * currentUnitPx >= 16) ?? 200;
+  const labelEvery = majorStep * currentUnitPx < 30 ? 2 : 1; // label every Nth major line
+  const isOnMajor = (v: number) => Math.abs(v / majorStep - Math.round(v / majorStep)) < 0.001;
+  const firstMajor = (v: number) => Math.floor(v / majorStep) * majorStep;
+
   // Distinct Theme Styling for genuine graph paper
   const theme = options.gridTheme;
   const isPaper = theme === 'paper';
@@ -290,9 +334,11 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
 
   if (options.showGrid) {
     // Minor subdivisions (0.2 or 0.5 units) for true graph paper feel
-    const minorStep = transform.zoom >= 1.2 ? 0.2 : 0.5;
-    for (let x = minWorldX; x <= maxWorldX; x += minorStep) {
-      if (Math.abs(x - Math.round(x)) < 0.001) continue;
+    const minorStep =
+      majorStep === 1 ? (transform.zoom >= 1.2 ? 0.2 : 0.5) : majorStep / (String(majorStep)[0] === '2' ? 4 : 5);
+    const showMinor = minorStep * currentUnitPx >= 5;
+    for (let x = firstMajor(minWorldX); showMinor && x <= maxWorldX; x += minorStep) {
+      if (isOnMajor(x)) continue;
       const sx = originX + x * currentUnitPx;
       gridElements.push(
         <line
@@ -306,8 +352,8 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
         />
       );
     }
-    for (let y = minWorldY; y <= maxWorldY; y += minorStep) {
-      if (Math.abs(y - Math.round(y)) < 0.001) continue;
+    for (let y = firstMajor(minWorldY); showMinor && y <= maxWorldY; y += minorStep) {
+      if (isOnMajor(y)) continue;
       const sy = originY - y * currentUnitPx;
       gridElements.push(
         <line
@@ -323,7 +369,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
     }
 
     // Major 1.0 unit grid lines
-    for (let x = minWorldX; x <= maxWorldX; x++) {
+    for (let x = firstMajor(minWorldX); x <= maxWorldX; x += majorStep) {
       const sx = originX + x * currentUnitPx;
       const isZero = x === 0;
       gridElements.push(
@@ -339,7 +385,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
       );
 
       // X-Axis Number labels
-      if (!isZero && x % (transform.zoom < 0.7 ? 2 : 1) === 0) {
+      if (!isZero && Math.round(x / majorStep) % labelEvery === 0) {
         const clampedY = Math.min(Math.max(originY + 16, 20), dimensions.height - 10);
         gridElements.push(
           <text
@@ -360,7 +406,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
     }
 
     // Y-Axis grid lines & labels
-    for (let y = minWorldY; y <= maxWorldY; y++) {
+    for (let y = firstMajor(minWorldY); y <= maxWorldY; y += majorStep) {
       const sy = originY - y * currentUnitPx;
       const isZero = y === 0;
       gridElements.push(
@@ -376,7 +422,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
       );
 
       // Y-Axis Number labels
-      if (!isZero && y % (transform.zoom < 0.7 ? 2 : 1) === 0) {
+      if (!isZero && Math.round(y / majorStep) % labelEvery === 0) {
         const clampedX = Math.min(Math.max(originX - 8, 24), dimensions.width - 24);
         gridElements.push(
           <text
@@ -907,7 +953,8 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
           />
           <circle cx={sC.x} cy={sC.y} r="3" fill="#ffffff" className="pointer-events-none" />
 
-          {/* Prominent floating badge above Point C */}
+          {/* Prominent floating badge above Point C (hidden while dragging a vertex) */}
+          {!isDraggingVertex && (
           <g transform={`translate(${sC.x}, ${sC.y - 26})`} className="pointer-events-none">
             <rect
               x="-60"
@@ -933,6 +980,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
               ★ DRAG POINT C ★
             </text>
           </g>
+          )}
 
           <text
             x={sC.x}
@@ -984,7 +1032,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
           <ZoomIn className="w-4 h-4" />
         </button>
         <button
-          onClick={() => setTransform((t) => ({ ...t, zoom: Math.max(t.zoom * 0.87, 0.25) }))}
+          onClick={() => setTransform((t) => ({ ...t, zoom: Math.max(t.zoom * 0.87, 0.05) }))}
           className="p-1.5 hover:bg-slate-800 hover:text-white rounded-lg transition-colors cursor-pointer"
           title="Zoom Out"
         >
@@ -1006,7 +1054,7 @@ export const GeometryCanvas: React.FC<GeometryCanvasProps> = ({
             <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
             <span>Click graph sheet to place Point {drawClicks.length === 0 ? 'A' : drawClicks.length === 1 ? 'B' : 'C'} ({drawClicks.length}/3)</span>
           </div>
-        ) : (
+        ) : isDraggingVertex ? null : (
           <div className="px-3.5 py-2 bg-slate-900/90 backdrop-blur-md text-slate-200 text-xs rounded-xl border border-slate-700 shadow-xl flex items-center gap-3">
             <div className="flex items-center gap-1.5 text-amber-400 font-semibold">
               <Hand className="w-4 h-4" />
